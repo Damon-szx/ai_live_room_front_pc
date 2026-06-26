@@ -441,14 +441,14 @@ export default function AiConfigPage() {
   }
 
   if (loading) {
-    return <div className="text-white/60">正在加载 AI 配置...</div>;
+    return <div className="text-white/60">正在加载素材配置...</div>;
   }
 
   return (
     <div className="space-y-6">
       <div>
-        <div className="text-sm text-white/40">智播 AI / AI 配置</div>
-        <h1 className="mt-2 text-3xl font-bold">AI 配置</h1>
+        <div className="text-sm text-white/40">智播 AI / 素材配置</div>
+        <h1 className="mt-2 text-3xl font-bold">素材配置</h1>
         <p className="mt-2 text-sm text-white/50">管理直播音色与知识库素材，为 AI 口播和弹幕回复提供能力。</p>
       </div>
 

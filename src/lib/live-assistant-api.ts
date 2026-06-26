@@ -15,6 +15,7 @@ export type LiveInteractionSettings = {
   chatTier2ReplyCount: number;
   sentenceGapMinMs: number;
   sentenceGapMaxMs: number;
+  hourlyChimeEnabled: boolean;
 };
 
 function toPayload(settings: LiveInteractionSettings): Omit<LiveInteractionSettings, "userId"> {
@@ -32,6 +33,7 @@ function toPayload(settings: LiveInteractionSettings): Omit<LiveInteractionSetti
     chatTier2ReplyCount: settings.chatTier2ReplyCount,
     sentenceGapMinMs: settings.sentenceGapMinMs,
     sentenceGapMaxMs: settings.sentenceGapMaxMs,
+    hourlyChimeEnabled: settings.hourlyChimeEnabled,
   };
 }
 

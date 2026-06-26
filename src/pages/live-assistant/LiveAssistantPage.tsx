@@ -56,6 +56,30 @@ import {
 } from "../../lib/playback-gap";
 import { playVoicePreviewItems, stopVoicePreviewPlayback } from "../../lib/voice-preview-player";
 
+function sortByCreatedDesc<T extends { createdAt?: string }>(items: T[]) {
+  return [...items].sort(
+    (left, right) => Date.parse(right.createdAt || "0") - Date.parse(left.createdAt || "0"),
+  );
+}
+
+function resolveDefaultVoiceId(voiceState: { voiceId?: string; voices?: VoiceProfile[] }) {
+  if (voiceState.voiceId) {
+    return voiceState.voiceId;
+  }
+  const voices = sortByCreatedDesc(voiceState.voices || []);
+  return voices.find((item) => item.isActive)?.voiceId || voices[0]?.voiceId || "";
+}
+
+function resolveDefaultKnowledgeId(knowledgeState: { selectedKnowledgeBaseId?: string; bases?: KnowledgeBase[] }) {
+  if (knowledgeState.selectedKnowledgeBaseId) {
+    return knowledgeState.selectedKnowledgeBaseId;
+  }
+  const readyBases = sortByCreatedDesc(
+    (knowledgeState.bases || []).filter((base) => base.status === "ready"),
+  );
+  return readyBases.find((item) => item.isActive)?.id || readyBases[0]?.id || "";
+}
+
 function SpeechRateSelector({
   value,
   onChange,
@@ -341,12 +365,54 @@ function TtsQueueList({ items }: { items: TtsQueueItem[] }) {
 
 type LiveLogLevel = "info" | "success" | "error";
 
+type LivePageTab = "config" | "details";
+
 type LiveLogEntry = {
   id: string;
   time: number;
   text: string;
   level: LiveLogLevel;
 };
+
+function LivePageTabs({
+  activeTab,
+  onChange,
+  isLive,
+}: {
+  activeTab: LivePageTab;
+  onChange: (tab: LivePageTab) => void;
+  isLive: boolean;
+}) {
+  const tabs: Array<{ id: LivePageTab; label: string }> = [
+    { id: "config", label: "开播配置" },
+    { id: "details", label: "直播详情" },
+  ];
+
+  return (
+    <div className="flex flex-wrap gap-2 border-b border-white/10 pb-1">
+      {tabs.map((tab) => {
+        const active = activeTab === tab.id;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => onChange(tab.id)}
+            className={`rounded-t-xl px-5 py-2.5 text-sm font-medium transition ${
+              active
+                ? "border border-b-0 border-white/10 bg-[#0d121c] text-accent"
+                : "text-white/55 hover:text-white"
+            }`}
+          >
+            {tab.label}
+            {tab.id === "details" && isLive ? (
+              <span className="ml-2 inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function ConnectionLogPanel({ logs }: { logs: LiveLogEntry[] }) {
   if (logs.length === 0) {
@@ -406,6 +472,7 @@ export default function LiveAssistantPage() {
     chatTier2ReplyCount: 10,
     sentenceGapMinMs: 500,
     sentenceGapMaxMs: 1000,
+    hourlyChimeEnabled: true,
   });
   const [savingInteraction, setSavingInteraction] = useState(false);
   const [savingSentenceGap, setSavingSentenceGap] = useState(false);
@@ -417,6 +484,7 @@ export default function LiveAssistantPage() {
   const [douyinSessionInput, setDouyinSessionInput] = useState(() => readSessionIdFromCookie());
   const [liveCaption, setLiveCaption] = useState("");
   const [liveLogs, setLiveLogs] = useState<LiveLogEntry[]>([]);
+  const [activePageTab, setActivePageTab] = useState<LivePageTab>("config");
   const pollTimerRef = useRef<number | null>(null);
   const livePanelsRef = useRef<HTMLDivElement>(null);
   const liveLogSeqRef = useRef(0);
@@ -437,15 +505,37 @@ export default function LiveAssistantPage() {
   const isLive = liveSession?.status === "live";
   const showLivePanels = isLive;
 
+  const voiceOptions = useMemo(
+    () =>
+      sortByCreatedDesc(voices).map((voice) => ({
+        value: voice.voiceId,
+        label: voice.voiceName || voice.sampleName || voice.voiceId,
+      })),
+    [voices],
+  );
+
+  const knowledgeOptions = useMemo(
+    () =>
+      sortByCreatedDesc(knowledgeBases.filter((base) => base.status === "ready")).map((base) => ({
+        value: base.id,
+        label: base.topic,
+      })),
+    [knowledgeBases],
+  );
+
   const activeVoice = useMemo(
     () => voices.find((voice) => voice.voiceId === selectedVoiceId) || voices.find((voice) => voice.isActive),
     [voices, selectedVoiceId],
   );
 
-  const activeKnowledge = useMemo(
-    () => knowledgeBases.find((base) => base.id === selectedKnowledgeId) || knowledgeBases.find((base) => base.isActive),
-    [knowledgeBases, selectedKnowledgeId],
-  );
+  const activeKnowledge = useMemo(() => {
+    const readyBases = knowledgeBases.filter((base) => base.status === "ready");
+    return (
+      readyBases.find((base) => base.id === selectedKnowledgeId) ||
+      readyBases.find((base) => base.isActive) ||
+      sortByCreatedDesc(readyBases)[0]
+    );
+  }, [knowledgeBases, selectedKnowledgeId]);
 
   const trimmedRoomInput = roomInput.trim();
   const hasRoomInput = Boolean(trimmedRoomInput);
@@ -593,19 +683,18 @@ export default function LiveAssistantPage() {
       ]);
       setVoices(voiceState.voices || []);
       setKnowledgeBases(knowledgeState.bases || []);
-      setSelectedVoiceId(voiceState.voiceId || voiceState.voices.find((item) => item.isActive)?.voiceId || "");
-      setSelectedKnowledgeId(
-        knowledgeState.selectedKnowledgeBaseId ||
-          knowledgeState.bases.find((item) => item.isActive)?.id ||
-          "",
-      );
+      setSelectedVoiceId(resolveDefaultVoiceId(voiceState));
+      setSelectedKnowledgeId(resolveDefaultKnowledgeId(knowledgeState));
       setInteractionSettings(interaction);
       setInteractionUserId(interaction.userId || "");
       applySentenceGapSettings(interaction);
       const session = await fetchLiveSession();
       setLiveSession(session);
+      if (session.status === "live") {
+        setActivePageTab("details");
+      }
     } catch (error) {
-      setMessage(error instanceof ApiError ? error.message : "直播助手数据加载失败");
+      setMessage(error instanceof ApiError ? error.message : "直播配置数据加载失败");
     } finally {
       setLoading(false);
     }
@@ -783,11 +872,11 @@ export default function LiveAssistantPage() {
   }, []);
 
   useEffect(() => {
-    if (!showLivePanels) {
+    if (activePageTab !== "details" || !showLivePanels) {
       return;
     }
     livePanelsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [showLivePanels]);
+  }, [activePageTab, showLivePanels]);
 
   async function handleStartLive() {
     if (!canStartLive) {
@@ -856,6 +945,7 @@ export default function LiveAssistantPage() {
       });
       setDouyinConnected(true);
       setMessage("AI 直播已启动，浏览器 WebSocket 已连接");
+      setActivePageTab("details");
 
       await refreshLiveSession();
     } catch (error) {
@@ -900,14 +990,14 @@ export default function LiveAssistantPage() {
   const metricSales = liveSession?.metrics.estimatedSales;
 
   if (loading) {
-    return <div className="text-white/60">正在加载直播助手...</div>;
+    return <div className="text-white/60">正在加载直播配置...</div>;
   }
 
   return (
     <div className="space-y-6">
       <div>
-        <div className="text-sm text-white/40">智播 AI / 直播助手</div>
-        <h1 className="mt-2 text-3xl font-bold">直播助手</h1>
+        <div className="text-sm text-white/40">智播 AI / 直播配置</div>
+        <h1 className="mt-2 text-3xl font-bold">直播配置</h1>
         <p className="mt-2 text-sm text-white/50">配置当前声音与素材，登录抖音后即可开始 AI 直播。</p>
       </div>
 
@@ -923,6 +1013,10 @@ export default function LiveAssistantPage() {
         </div>
       ) : null}
 
+      <LivePageTabs activeTab={activePageTab} onChange={setActivePageTab} isLive={isLive} />
+
+      {activePageTab === "config" ? (
+        <>
       <div className="grid gap-6 xl:grid-cols-2">
         <section className="rounded-[24px] border border-white/10 bg-[#0d121c] p-6">
           <div className="mb-6">
@@ -936,20 +1030,14 @@ export default function LiveAssistantPage() {
               value={selectedVoiceId}
               onChange={handleVoiceChange}
               placeholder="请选择声音"
-              options={voices.map((voice) => ({
-                value: voice.voiceId,
-                label: voice.voiceName || voice.sampleName || voice.voiceId,
-              }))}
+              options={voiceOptions}
             />
             <SelectField
               label="当前素材"
               value={selectedKnowledgeId}
               onChange={handleKnowledgeChange}
               placeholder="请选择素材"
-              options={knowledgeBases.map((base) => ({
-                value: base.id,
-                label: base.topic,
-              }))}
+              options={knowledgeOptions}
             />
             <SpeechRateSelector value={speechRatePreset} onChange={handleSpeechRateChange} />
             <SentenceGapRangeField
@@ -1004,7 +1092,7 @@ export default function LiveAssistantPage() {
           </div>
 
           <div className="mt-6 rounded-2xl border border-accent/20 bg-accent/10 px-4 py-4 text-sm text-accent/90">
-            AI 声音与素材会实时同步到直播会话。如需新增或删除，请前往 AI 配置页管理。
+            AI 声音与素材会实时同步到直播会话。如需新增或删除，请前往素材配置页管理。
           </div>
         </section>
 
@@ -1096,11 +1184,6 @@ export default function LiveAssistantPage() {
               </button>
             ) : null}
 
-            <div>
-              <div className="mb-2 text-sm text-white/60">连接日志</div>
-              <ConnectionLogPanel logs={liveLogs} />
-            </div>
-
             <p className="text-center text-xs text-white/35">
               {!activeVoice || !activeKnowledge
                 ? "请先选择当前声音和素材"
@@ -1108,97 +1191,13 @@ export default function LiveAssistantPage() {
                   ? "请填写房间号或粘贴分享链接"
                   : !hasReadyRoom
                     ? "短链/分享文案需先点「解析」"
-                    : "配置已完成，可开始 AI 直播"}
+                    : isLive
+                      ? "直播进行中，可在「直播详情」查看连接日志与监控"
+                      : "配置已完成，可开始 AI 直播"}
             </p>
           </div>
         </section>
       </div>
-
-      {showLivePanels ? (
-        <div ref={livePanelsRef} className="space-y-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-xl font-semibold text-white">直播监控</h2>
-              <p className="mt-1 text-sm text-white/45">实时查看直播间事件与待播报文案</p>
-            </div>
-            <span
-              className={`rounded-full px-3 py-1 text-xs ${
-                douyinConnected ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-200"
-              }`}
-              title={undefined}
-            >
-              {douyinConnected ? "浏览器 WebSocket 已连接" : "抖音未连接"}
-            </span>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-3">
-            <MetricCard label="累计观众" value={metricAudience != null ? String(metricAudience) : "--"} />
-            <MetricCard label="互动点赞" value={metricLikes != null ? String(metricLikes) : "--"} />
-            <MetricCard label="预估销量" value={metricSales != null ? String(metricSales) : "--"} />
-          </div>
-
-          <div className="rounded-2xl border border-accent/20 bg-accent/5 px-5 py-4">
-            <div className="text-xs text-accent/80">当前口播</div>
-            <div className="mt-2 min-h-[3rem] text-base leading-7 text-white">
-              {liveCaption || "等待自动讲解..."}
-            </div>
-          </div>
-
-          <div className="grid gap-6 xl:grid-cols-2">
-            <QueuePanel title="直播间事件队列" hint="展示当前直播间解析到的弹幕与互动事件">
-              <EventQueueList items={liveSession?.eventQueue || []} />
-            </QueuePanel>
-            <QueuePanel title="TTS 预备播报" hint="展示已生成、等待语音合成与口播播放的文案队列">
-              <TtsQueueList items={liveSession?.ttsQueue || []} />
-            </QueuePanel>
-          </div>
-        </div>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-3">
-          <MetricCard label="累计观众" value="--" />
-          <MetricCard label="互动点赞" value="--" />
-          <MetricCard label="预估销量" value="--" />
-        </div>
-      )}
-
-      <section className="rounded-[24px] border border-white/10 bg-[#0d121c] p-6">
-        <div className="mb-6">
-          <h2 className="text-xl font-semibold">手动插播</h2>
-          <p className="mt-1 text-sm text-white/45">将文本立即加入即将播放队列，系统会按完整句子拆分并逐句请求 TTS</p>
-        </div>
-
-        <div className="space-y-4">
-          <TipsBox>
-            长文本会自动按句号、问号、叹号拆成多句（最多 30 句），每句单独合成语音，避免一次性 TTS 耗时过长。插播内容会在当前句讲完后优先播报。
-          </TipsBox>
-          <label className="block">
-            <span className="mb-2 block text-sm text-white/60">插播内容</span>
-            <textarea
-              value={manualInsertText}
-              onChange={(event) => setManualInsertText(event.target.value)}
-              placeholder="输入要立刻口播的内容，支持多句。例如：家人们注意了，今天这款有额外优惠。想要的赶紧扣 1。"
-              rows={5}
-              maxLength={2000}
-              disabled={!isLive || manualInserting}
-              className="w-full resize-y rounded-xl border border-white/10 bg-[#070a10] px-4 py-3 text-sm leading-7 text-white outline-none transition focus:border-accent/40 disabled:opacity-50"
-            />
-          </label>
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={handleManualInsert}
-              disabled={!isLive || manualInserting || !manualInsertText.trim()}
-              className="rounded-xl border border-accent/30 bg-accent/10 px-5 py-3 text-sm font-medium text-accent transition hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {manualInserting ? "处理中..." : "立即插播"}
-            </button>
-            <span className="text-xs text-white/35">
-              {manualInsertText.length}/2000 字
-              {!isLive ? " · 开播后可使用" : ""}
-            </span>
-          </div>
-        </div>
-      </section>
 
       <section className="rounded-[24px] border border-white/10 bg-[#0d121c] p-6">
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -1258,6 +1257,21 @@ export default function LiveAssistantPage() {
               min={1}
               max={100}
               suffix="人"
+            />
+          </div>
+
+          <div className="space-y-4 rounded-2xl border border-white/5 bg-white/[0.02] p-5">
+            <div className="text-sm font-medium text-white">整点报时</div>
+            <TipsBox>
+              每小时整点自动插入一段报时口播，前半段固定为「家人们，现在X点0分了」，后半段结合当前直播间素材由 AI 生成，随后进入 TTS 播放队列。
+            </TipsBox>
+            <ToggleField
+              label="启用整点报时"
+              hint="关闭后，直播过程中不会自动插入报时口播"
+              checked={interactionSettings.hourlyChimeEnabled ?? true}
+              onChange={(checked) =>
+                setInteractionSettings((current) => ({ ...current, hourlyChimeEnabled: checked }))
+              }
             />
           </div>
 
@@ -1369,6 +1383,122 @@ export default function LiveAssistantPage() {
           </div>
         </div>
       </section>
+        </>
+      ) : (
+        <div className="space-y-6">
+          <section className="rounded-[24px] border border-white/10 bg-[#0d121c] p-6">
+            <div className="mb-4">
+              <h2 className="text-xl font-semibold">连接日志</h2>
+              <p className="mt-1 text-sm text-white/45">WebSocket 连接、弹幕接收与口播播放过程日志</p>
+            </div>
+            <ConnectionLogPanel logs={liveLogs} />
+          </section>
+
+          <div ref={livePanelsRef} className="space-y-6">
+            {showLivePanels ? (
+              <>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-xl font-semibold text-white">直播监控</h2>
+                    <p className="mt-1 text-sm text-white/45">实时查看直播间事件与待播报文案</p>
+                  </div>
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs ${
+                      douyinConnected ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-200"
+                    }`}
+                  >
+                    {douyinConnected ? "WebSocket 已连接" : "抖音未连接"}
+                  </span>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-3">
+                  <MetricCard label="累计观众" value={metricAudience != null ? String(metricAudience) : "--"} />
+                  <MetricCard label="互动点赞" value={metricLikes != null ? String(metricLikes) : "--"} />
+                  <MetricCard label="预估销量" value={metricSales != null ? String(metricSales) : "--"} />
+                </div>
+
+                <div className="rounded-2xl border border-accent/20 bg-accent/5 px-5 py-4">
+                  <div className="text-xs text-accent/80">当前口播</div>
+                  <div className="mt-2 min-h-[3rem] text-base leading-7 text-white">
+                    {liveCaption || "等待自动讲解..."}
+                  </div>
+                </div>
+
+                <div className="grid gap-6 xl:grid-cols-2">
+                  <QueuePanel title="直播间事件队列" hint="展示当前直播间解析到的弹幕与互动事件">
+                    <EventQueueList items={liveSession?.eventQueue || []} />
+                  </QueuePanel>
+                  <QueuePanel title="TTS 预备播报" hint="展示已生成、等待语音合成与口播播放的文案队列">
+                    <TtsQueueList items={liveSession?.ttsQueue || []} />
+                  </QueuePanel>
+                </div>
+              </>
+            ) : (
+              <div className="rounded-[24px] border border-white/10 bg-[#0d121c] p-6 text-center">
+                <h2 className="text-xl font-semibold text-white">直播监控</h2>
+                <p className="mt-2 text-sm text-white/45">开始 AI 直播后，在此查看实时数据与播报队列</p>
+                <div className="mt-6 grid gap-4 md:grid-cols-3">
+                  <MetricCard label="累计观众" value="--" />
+                  <MetricCard label="互动点赞" value="--" />
+                  <MetricCard label="预估销量" value="--" />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <section className="rounded-[24px] border border-white/10 bg-[#0d121c] p-6">
+            <div className="mb-6">
+              <h2 className="text-xl font-semibold">手动插播</h2>
+              <p className="mt-1 text-sm text-white/45">将文本立即加入即将播放队列，系统会按完整句子拆分并逐句请求 TTS</p>
+            </div>
+
+            <div className="space-y-4">
+              <TipsBox>
+                长文本会自动按句号、问号、叹号拆成多句（最多 30 句），每句单独合成语音，避免一次性 TTS 耗时过长。插播内容会在当前句讲完后优先播报。
+              </TipsBox>
+              <label className="block">
+                <span className="mb-2 block text-sm text-white/60">插播内容</span>
+                <textarea
+                  value={manualInsertText}
+                  onChange={(event) => setManualInsertText(event.target.value)}
+                  placeholder="输入要立刻口播的内容，支持多句。例如：家人们注意了，今天这款有额外优惠。想要的赶紧扣 1。"
+                  rows={5}
+                  maxLength={2000}
+                  disabled={!isLive || manualInserting}
+                  className="w-full resize-y rounded-xl border border-white/10 bg-[#070a10] px-4 py-3 text-sm leading-7 text-white outline-none transition focus:border-accent/40 disabled:opacity-50"
+                />
+              </label>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleManualInsert}
+                  disabled={!isLive || manualInserting || !manualInsertText.trim()}
+                  className="rounded-xl border border-accent/30 bg-accent/10 px-5 py-3 text-sm font-medium text-accent transition hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {manualInserting ? "处理中..." : "立即插播"}
+                </button>
+                <span className="text-xs text-white/35">
+                  {manualInsertText.length}/2000 字
+                  {!isLive ? " · 开播后可使用" : ""}
+                </span>
+              </div>
+            </div>
+          </section>
+
+          {isLive ? (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={handleStopLive}
+                disabled={stoppingLive}
+                className="rounded-2xl border border-red-500/30 bg-red-500/10 px-6 py-3 text-sm text-red-200 transition hover:bg-red-500/15 disabled:opacity-50"
+              >
+                {stoppingLive ? "停止中..." : "停止直播"}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }

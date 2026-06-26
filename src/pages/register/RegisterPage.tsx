@@ -133,27 +133,6 @@ export default function RegisterPage() {
             </PrimaryButton>
           </form>
 
-          <div className="my-6 flex items-center gap-4 text-xs text-muted">
-            <div className="h-px flex-1 bg-card-border" />
-            其他方式
-            <div className="h-px flex-1 bg-card-border" />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              className="rounded-xl border border-card-border px-4 py-3 text-sm text-white transition hover:border-accent/40"
-            >
-              微信
-            </button>
-            <button
-              type="button"
-              className="rounded-xl border border-card-border px-4 py-3 text-sm text-white transition hover:border-accent/40"
-            >
-              码云
-            </button>
-          </div>
-
           <div className="mt-6 text-center text-sm text-muted">
             已有账号？
             <Link to="/login" className="ml-1 text-accent transition hover:text-white">

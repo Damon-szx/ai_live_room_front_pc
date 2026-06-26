@@ -4,8 +4,8 @@ import { logoutAccount } from "../../lib/auth-api";
 
 const navItems = [
   { to: "/user-center", label: "用户中心", end: true },
-  { to: "/ai-config", label: "AI 配置", end: true },
-  { to: "/live-assistant", label: "直播助手", end: true },
+  { to: "/ai-config", label: "素材配置", end: true },
+  { to: "/live-assistant", label: "直播配置", end: true },
   { to: "#", label: "设置", disabled: true },
 ];
 

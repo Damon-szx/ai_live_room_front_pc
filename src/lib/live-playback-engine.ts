@@ -433,7 +433,7 @@ async function speakQueueItem(item: PlaybackItem) {
   currentItem = item;
   speaking = true;
   callbacks.onCaption?.(item.text);
-  log(`${item.kind === "reply" ? "回复" : item.kind === "manual" ? "插播" : "讲解"}：${item.text}`);
+  log(`${item.kind === "reply" ? "回复" : item.kind === "manual" ? "插播" : item.kind === "chime" ? "整点报时" : "讲解"}：${item.text}`);
   scheduleTtsPrefetch();
   if (item.leadPauseMs) {
     await delay(item.leadPauseMs);
@@ -470,7 +470,12 @@ export function getPlaybackContext() {
 function prepareAndEnqueueReplies(items: PlaybackItem[]) {
   const normalized = normalizeQueueItems(items);
   if (!normalized.length) return;
-  log(`收到弹幕回复，后台合成中：共 ${normalized.length} 句`);
+  const label = normalized.every((item) => item.kind === "chime")
+    ? "整点报时"
+    : normalized.every((item) => item.kind === "manual")
+      ? "手动插播"
+      : "弹幕回复";
+  log(`收到${label}，后台合成中：共 ${normalized.length} 句`);
   for (let index = normalized.length - 1; index >= 0; index -= 1) {
     playQueue.unshift(normalized[index]);
   }
@@ -519,7 +524,7 @@ export function syncServerTtsQueue(items: Array<{ id: string; kind?: string; top
     fresh.map((item) => ({
       id: item.id,
       kind: item.kind || "reply",
-      topic: item.topic || "直播互动",
+      topic: item.topic || (item.kind === "chime" ? "整点报时" : "直播互动"),
       text: item.text,
     })),
   );
